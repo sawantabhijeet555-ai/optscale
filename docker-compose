@@ -1,0 +1,80 @@
+version: "3.9"
+
+services:
+  # --- Frontend / Web Layer ---
+  web:
+    build:
+      args:
+        - NODE_ENV=development
+      context: .
+      dockerfile: ./ngui/Dockerfile
+    env_file:
+      - ngui/ui/.env
+      - ngui/server/.env
+    ports:
+      - "4000:4000"
+    depends_on:
+      redis:
+        condition: service_started
+      rest_api:
+        condition: service_started
+
+  # --- Caching Layer ---
+  redis:
+    image: "redis:7.0.9"
+    ports:
+      - "6379:6379"
+
+  # --- Database Layer ---
+  mariadb:
+    image: "mariadb:10.3"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: optscale
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
+  mongo:
+    image: "mongo:3.6"
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # --- Core Microservices ---
+  auth:
+    build:
+      context: .
+      dockerfile: ./auth/Dockerfile
+    environment:
+      - MYSQL_HOST=mariadb
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=rootpassword
+      - MYSQL_DB=optscale
+    ports:
+      - "8905:8905"
+    depends_on:
+      mariadb:
+        condition: service_started
+
+  rest_api:
+    build:
+      context: .
+      dockerfile: ./rest_api/Dockerfile
+    environment:
+      - MONGODB_URL=mongodb://mongo:27017
+      - AUTH_URL=http://auth:8905
+    ports:
+      - "8901:8901"
+    depends_on:
+      mongo:
+        condition: service_started
+      auth:
+        condition: service_started
+
+volumes:
+  mariadb_data:
+  mongo_data:
