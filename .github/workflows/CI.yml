@@ -22,36 +22,47 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
-      - name: Build Unified OptScale Images
-        run: |
-          # Navigate to the folder containing the build script
-          cd optscale-deploy/compose
-          
-          # Ensure script is executable and build the local images
-          chmod +x build-unified.sh
-          ./build-unified.sh
-
       - name: Retag and Push Images
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: |
-          # 1. Force the Docker username to strictly lowercase to satisfy Docker naming rules
           HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
-          
           echo "Starting retag and push process for user: $HUB_USER"
           
-          # 2. Find images starting with "hystax/", but explicitly ignore "<none>" tags
-          docker images --format "{{.Repository}}:{{.Tag}}" | grep "^hystax/" | grep -v "<none>" | while read -r IMAGE; do
-              
-              # Extract the image name and tag
+          # 1. First, process all the custom hystax images (ignoring local/latest duplicates)
+          docker images --format "{{.Repository}}:{{.Tag}}" | grep "^hystax/.*:2026042701-public" | while read -r IMAGE; do
+              # Extract just the image name (remove 'hystax/')
               IMAGE_NAME=$(echo "$IMAGE" | sed 's/hystax\///')
               
-              echo "----------------------------------------"
-              echo "Processing $IMAGE_NAME..."
-              
-              # Retag for your personal Docker Hub account
+              echo "Processing Hystax App: $IMAGE_NAME..."
               docker tag "$IMAGE" "$HUB_USER/$IMAGE_NAME"
-              
-              # Push the image to Docker Hub
+              docker push "$HUB_USER/$IMAGE_NAME"
+          done
+          
+          # 2. Next, process the required 3rd-party databases & tools needed for Kubernetes
+          # Define an array of the exact third-party images you need
+          THIRD_PARTY_IMAGES=(
+              "clickhouse/clickhouse-server:24.12"
+              "curlimages/curl:latest"
+              "gcr.io/etcd-development/etcd:v3.2.13"
+              "rabbitmq:4.1.4-management-alpine"
+              "thanosio/thanos:v0.39.1"
+              "nginx:1.27-alpine"
+          )
+          
+          for IMAGE in "${THIRD_PARTY_IMAGES[@]}"; do
+              # Ensure the image exists locally first
+              if docker image inspect "$IMAGE" > /dev/null 2>&1; then
+                  # For 3rd party images, we strip the original namespace (e.g., clickhouse/clickhouse-server -> clickhouse-server)
+                  # or if it has no namespace (e.g. rabbitmq), we just use it as is.
+                  SHORT_NAME=$(echo "$IMAGE" | awk -F'/' '{print $NF}')
+                  
+                  echo "Processing 3rd-Party: $SHORT_NAME..."
+                  docker tag "$IMAGE" "$HUB_USER/$SHORT_NAME"
+                  docker push "$HUB_USER/$SHORT_NAME"
+              else
+                  echo "Warning: $IMAGE not found locally, skipping."
+              fi
+          done
               docker push "$HUB_USER/$IMAGE_NAME"
           done
