@@ -26,24 +26,27 @@ jobs:
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: |
-          # Convert username to lowercase to satisfy Docker naming rules
+          # 1. Convert your Docker Hub username to lowercase
           HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
+          echo "Using Docker Hub Account: $HUB_USER"
+          echo "========================================"
           
-          echo "=== Starting Push for Docker Hub User: $HUB_USER ==="
-          
-          # List all images, filter for 'hystax/', and process them line by line
+          # 2. Find all images containing 'hystax/'
           docker images --format '{{.Repository}}:{{.Tag}}' | grep 'hystax/' | grep -v '<none>' | while read -r IMAGE; do
               
-              # Extract the app name and tag (e.g., from hystax/auth:2026042701-public -> auth:2026042701-public)
-              APP_NAME=$(echo "$IMAGE" | awk -F'/' '{print $2}')
+              # Extract just the app name and tag by removing everything before the last slash
+              # Example: hystax/auth:2026042701-public -> auth:2026042701-public
+              APP_NAME=${IMAGE##*/}
               
-              # Construct the new tag for your Docker Hub account
+              # Create the new tag with your username
               NEW_TAG="$HUB_USER/$APP_NAME"
               
-              echo "----------------------------------------"
+              # Tag and Push
               echo "Tagging: $IMAGE -> $NEW_TAG"
               docker tag "$IMAGE" "$NEW_TAG"
               
               echo "Pushing: $NEW_TAG"
               docker push "$NEW_TAG"
+              echo "----------------------------------------"
+              
           done
