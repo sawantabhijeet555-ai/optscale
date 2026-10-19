@@ -1,10 +1,10 @@
-name: Build and Push OptScale Images
+name: Build and Push OptScale Microservices
 
 on:
   push:
     branches:
-      - integration  # Triggers pipeline when code is pushed to main
-  workflow_dispatch: # Adds a button to trigger it manually from the GitHub UI
+      - integration
+  workflow_dispatch:
 
 jobs:
   build-and-push:
@@ -14,7 +14,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetches tags, which OptScale build scripts sometimes require
+          fetch-depth: 0
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4
@@ -22,38 +22,64 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
-      - name: Build and Tag Images Natively
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      - name: Build ALL Microservices
         run: |
-          cd optscale-deploy/compose
-          chmod +x build-unified.sh
+          # Navigate to the main deployment folder, not the compose folder
+          cd optscale-deploy
+          chmod +x build.sh
           
-          # Convert username to lowercase
-          HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
-          
-          # Run the script: Argument 1 is the Tag, Argument 2 is your Docker Username
-          echo "Building images directly for Docker Hub account: $HUB_USER"
-          ./build-unified.sh "2026042701-public" "$HUB_USER"
+          echo "Building all 30+ OptScale microservices..."
+          # Run the main build script (standard docker, no nerdctl required on runner)
+          ./build.sh
 
-      - name: Push Built Images to Docker Hub
+      - name: Retag and Push Microservices
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+          HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
+          echo "Using Docker Hub Account: $HUB_USER"
+          
+          # Find all newly built images starting with 'hystax/'
+          docker images --format '{{.Repository}}:{{.Tag}}' | grep 'hystax/' | grep -v '<none>' | while read -r IMAGE; do
+              
+              # Extract app name and tag (e.g., hystax/auth:local -> auth:local)
+              APP_NAME=${IMAGE##*/}
+              NEW_TAG="$HUB_USER/$APP_NAME"
+              
+              echo "----------------------------------------"
+              echo "Tagging: $IMAGE -> $NEW_TAG"
+              docker tag "$IMAGE" "$NEW_TAG"
+              
+              echo "Pushing: $NEW_TAG"
+              docker push "$NEW_TAG"
+          done
+
+      - name: Pull and Push 3rd-Party Database Images
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: |
           HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
           
-          # We know exactly which 6 images the script just built, so we push them explicitly:
-          IMAGES=(
-            "etcd"
-            "mariadb"
-            "mongo"
-            "redis"
-            "influxdb"
-            "optscale_app"
+          THIRD_PARTY_IMAGES=(
+              "clickhouse/clickhouse-server:24.12"
+              "curlimages/curl:latest"
+              "gcr.io/etcd-development/etcd:v3.2.13"
+              "rabbitmq:4.1.4-management-alpine"
+              "thanosio/thanos:v0.39.1"
+              "nginx:1.27-alpine"
           )
           
-          for IMG in "${IMAGES[@]}"; do
-            FULL_NAME="$HUB_USER/$IMG:2026042701-public"
-            echo "Pushing $FULL_NAME..."
-            docker push "$FULL_NAME"
+          for BASE_IMAGE in "${THIRD_PARTY_IMAGES[@]}"; do
+              echo "----------------------------------------"
+              echo "Pulling: $BASE_IMAGE"
+              docker pull "$BASE_IMAGE"
+              
+              SHORT_NAME=$(echo "$BASE_IMAGE" | awk -F'/' '{print $NF}')
+              NEW_TAG="$HUB_USER/$SHORT_NAME"
+              
+              echo "Tagging: $BASE_IMAGE -> $NEW_TAG"
+              docker tag "$BASE_IMAGE" "$NEW_TAG"
+              
+              echo "Pushing: $NEW_TAG"
+              docker push "$NEW_TAG"
           done
