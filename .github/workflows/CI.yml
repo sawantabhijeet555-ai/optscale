@@ -29,18 +29,17 @@ jobs:
           HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
           echo "Starting retag and push process for user: $HUB_USER"
           
-          # 1. First, process all the custom hystax images (ignoring local/latest duplicates)
-          docker images --format "{{.Repository}}:{{.Tag}}" | grep "^hystax/.*:2026042701-public" | while read -r IMAGE; do
-              # Extract just the image name (remove 'hystax/')
+          # 1. Process all custom hystax images built by build-unified.sh
+          docker images --format "{{.Repository}}:{{.Tag}}" | grep "^hystax/" | grep -v "<none>" | while read -r IMAGE; do
+              # Remove 'hystax/' prefix
               IMAGE_NAME=$(echo "$IMAGE" | sed 's/hystax\///')
               
-              echo "Processing Hystax App: $IMAGE_NAME..."
+              echo "Processing Hystax Image: $IMAGE_NAME..."
               docker tag "$IMAGE" "$HUB_USER/$IMAGE_NAME"
               docker push "$HUB_USER/$IMAGE_NAME"
           done
           
-          # 2. Next, process the required 3rd-party databases & tools needed for Kubernetes
-          # Define an array of the exact third-party images you need
+          # 2. Pull, retag, and push required 3rd-party images for K8s deployment
           THIRD_PARTY_IMAGES=(
               "clickhouse/clickhouse-server:24.12"
               "curlimages/curl:latest"
@@ -51,18 +50,14 @@ jobs:
           )
           
           for IMAGE in "${THIRD_PARTY_IMAGES[@]}"; do
-              # Ensure the image exists locally first
-              if docker image inspect "$IMAGE" > /dev/null 2>&1; then
-                  # For 3rd party images, we strip the original namespace (e.g., clickhouse/clickhouse-server -> clickhouse-server)
-                  # or if it has no namespace (e.g. rabbitmq), we just use it as is.
-                  SHORT_NAME=$(echo "$IMAGE" | awk -F'/' '{print $NF}')
-                  
-                  echo "Processing 3rd-Party: $SHORT_NAME..."
-                  docker tag "$IMAGE" "$HUB_USER/$SHORT_NAME"
-                  docker push "$HUB_USER/$SHORT_NAME"
-              else
-                  echo "Warning: $IMAGE not found locally, skipping."
-              fi
-          done
-              docker push "$HUB_USER/$IMAGE_NAME"
+              echo "----------------------------------------"
+              echo "Pulling missing base image: $IMAGE..."
+              docker pull "$IMAGE"
+              
+              # Extract the image name and tag (e.g., clickhouse/clickhouse-server:24.12 -> clickhouse-server:24.12)
+              SHORT_NAME=$(echo "$IMAGE" | awk -F'/' '{print $NF}')
+              
+              echo "Pushing 3rd-Party Image: $HUB_USER/$SHORT_NAME..."
+              docker tag "$IMAGE" "$HUB_USER/$SHORT_NAME"
+              docker push "$HUB_USER/$SHORT_NAME"
           done
