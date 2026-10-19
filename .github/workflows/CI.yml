@@ -22,64 +22,38 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
-      - name: Retag and Push Images
+      - name: Build and Tag Images Natively
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+          cd optscale-deploy/compose
+          chmod +x build-unified.sh
+          
+          # Convert username to lowercase
+          HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
+          
+          # Run the script: Argument 1 is the Tag, Argument 2 is your Docker Username
+          echo "Building images directly for Docker Hub account: $HUB_USER"
+          ./build-unified.sh "2026042701-public" "$HUB_USER"
+
+      - name: Push Built Images to Docker Hub
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: |
           HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
-          echo "Using Docker Hub Account: $HUB_USER"
           
-          # List all locally available images to the GitHub logs for debugging
-          echo "=== ALL LOCAL IMAGES ==="
-          docker images
-          echo "========================"
-          
-          # 1. PUSH ALL IMAGES (Aggressive Match)
-          # Instead of looking for "hystax", we process EVERY image built locally
-          # EXCEPT the base operating system and build tools.
-          docker images --format '{{.Repository}}:{{.Tag}}' | grep -v '<none>' | while read -r IMAGE; do
-              
-              # Skip standard base images that shouldn't be pushed
-              if [[ "$IMAGE" == *"ubuntu"* ]] || [[ "$IMAGE" == *"alpine"* ]] || [[ "$IMAGE" == *"golang"* ]] || [[ "$IMAGE" == *"python"* ]] || [[ "$IMAGE" == *"node"* ]]; then
-                  continue
-              fi
-              
-              # Extract the app name and tag, stripping any directory or registry prefixes
-              # Example: localhost/hystax/auth:latest -> auth:latest
-              APP_NAME=${IMAGE##*/}
-              
-              NEW_TAG="$HUB_USER/$APP_NAME"
-              
-              echo "----------------------------------------"
-              echo "Found Image: $IMAGE"
-              echo "Tagging as:  $NEW_TAG"
-              docker tag "$IMAGE" "$NEW_TAG"
-              
-              echo "Pushing: $NEW_TAG"
-              docker push "$NEW_TAG"
-          done
-          
-          # 2. PUSH THIRD-PARTY IMAGES
-          THIRD_PARTY_IMAGES=(
-              "clickhouse/clickhouse-server:24.12"
-              "curlimages/curl:latest"
-              "gcr.io/etcd-development/etcd:v3.2.13"
-              "rabbitmq:4.1.4-management-alpine"
-              "thanosio/thanos:v0.39.1"
-              "nginx:1.27-alpine"
+          # We know exactly which 6 images the script just built, so we push them explicitly:
+          IMAGES=(
+            "etcd"
+            "mariadb"
+            "mongo"
+            "redis"
+            "influxdb"
+            "optscale_app"
           )
           
-          for BASE_IMAGE in "${THIRD_PARTY_IMAGES[@]}"; do
-              echo "--------------------------------"
-              echo "Pulling: $BASE_IMAGE"
-              docker pull "$BASE_IMAGE"
-              
-              SHORT_NAME=$(echo "$BASE_IMAGE" | awk -F'/' '{print $NF}')
-              NEW_TAG="$HUB_USER/$SHORT_NAME"
-              
-              echo "Tagging: $BASE_IMAGE -> $NEW_TAG"
-              docker tag "$BASE_IMAGE" "$NEW_TAG"
-              
-              echo "Pushing: $NEW_TAG"
-              docker push "$NEW_TAG"
+          for IMG in "${IMAGES[@]}"; do
+            FULL_NAME="$HUB_USER/$IMG:2026042701-public"
+            echo "Pushing $FULL_NAME..."
+            docker push "$FULL_NAME"
           done
