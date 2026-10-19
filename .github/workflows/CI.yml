@@ -26,52 +26,25 @@ jobs:
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: |
-          # Force lowercase username
           HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
-          echo "Using Docker Hub Account: $HUB_USER"
           
-          # 1. PUSH ALL HYSTAX IMAGES
-          # We list all images starting with 'hystax' and push them directly
-          docker images --format "{{.Repository}}:{{.Tag}}" | grep "^hystax/" | grep -v "<none>" | while read -r FULL_IMAGE; do
+          echo "=== DEBUG: LISTING ALL BUILT IMAGES ==="
+          docker images
+          echo "======================================="
+          
+          # Match ANY image containing 'hystax', regardless of prefix
+          docker images --format "{{.Repository}}:{{.Tag}}" | grep "hystax" | grep -v "<none>" | while read -r FULL_IMAGE; do
               
-              # Remove 'hystax/' from the repository name
-              # e.g., hystax/optscale_app:2026042701-public -> optscale_app:2026042701-public
-              IMAGE_ONLY=$(echo "$FULL_IMAGE" | sed 's|^hystax/||')
+              # Strip everything up to and including 'hystax/' 
+              # Example: docker.io/hystax/auth:latest -> auth:latest
+              IMAGE_ONLY=${FULL_IMAGE#*hystax/}
               
-              # Construct the new tag
               NEW_TAG="$HUB_USER/$IMAGE_ONLY"
               
               echo "--------------------------------"
               echo "Tagging: $FULL_IMAGE -> $NEW_TAG"
               docker tag "$FULL_IMAGE" "$NEW_TAG"
               
-              echo "Pushing: $NEW_TAG"
-              docker push "$NEW_TAG"
-              
-          done
-          
-          # 2. PUSH THIRD-PARTY IMAGES
-          THIRD_PARTY_IMAGES=(
-              "clickhouse/clickhouse-server:24.12"
-              "curlimages/curl:latest"
-              "gcr.io/etcd-development/etcd:v3.2.13"
-              "rabbitmq:4.1.4-management-alpine"
-              "thanosio/thanos:v0.39.1"
-              "nginx:1.27-alpine"
-          )
-          
-          for BASE_IMAGE in "${THIRD_PARTY_IMAGES[@]}"; do
-              echo "--------------------------------"
-              echo "Pulling: $BASE_IMAGE"
-              docker pull "$BASE_IMAGE"
-              
-              # Extract just the name and tag (e.g., rabbitmq:4.1.4-management-alpine)
-              SHORT_NAME=$(echo "$BASE_IMAGE" | awk -F'/' '{print $NF}')
-              
-              NEW_TAG="$HUB_USER/$SHORT_NAME"
-              echo "Tagging: $BASE_IMAGE -> $NEW_TAG"
-              docker tag "$BASE_IMAGE" "$NEW_TAG"
-              
-              echo "Pushing: $NEW_TAG"
+              echo "Pushing: $NEW_TAG..."
               docker push "$NEW_TAG"
           done
