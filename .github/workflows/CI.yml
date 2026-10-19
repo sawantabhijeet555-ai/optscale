@@ -22,29 +22,28 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
-      - name: Retag and Push All Images
+      - name: Retag and Push Hystax Images
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: |
+          # Convert username to lowercase to satisfy Docker naming rules
           HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
           
-          echo "=== DEBUG: LISTING ALL BUILT IMAGES ==="
-          docker images
-          echo "======================================="
+          echo "=== Starting Push for Docker Hub User: $HUB_USER ==="
           
-          # Match ANY image containing 'hystax', regardless of prefix
-          docker images --format "{{.Repository}}:{{.Tag}}" | grep "hystax" | grep -v "<none>" | while read -r FULL_IMAGE; do
+          # List all images, filter for 'hystax/', and process them line by line
+          docker images --format '{{.Repository}}:{{.Tag}}' | grep 'hystax/' | grep -v '<none>' | while read -r IMAGE; do
               
-              # Strip everything up to and including 'hystax/' 
-              # Example: docker.io/hystax/auth:latest -> auth:latest
-              IMAGE_ONLY=${FULL_IMAGE#*hystax/}
+              # Extract the app name and tag (e.g., from hystax/auth:2026042701-public -> auth:2026042701-public)
+              APP_NAME=$(echo "$IMAGE" | awk -F'/' '{print $2}')
               
-              NEW_TAG="$HUB_USER/$IMAGE_ONLY"
+              # Construct the new tag for your Docker Hub account
+              NEW_TAG="$HUB_USER/$APP_NAME"
               
-              echo "--------------------------------"
-              echo "Tagging: $FULL_IMAGE -> $NEW_TAG"
-              docker tag "$FULL_IMAGE" "$NEW_TAG"
+              echo "----------------------------------------"
+              echo "Tagging: $IMAGE -> $NEW_TAG"
+              docker tag "$IMAGE" "$NEW_TAG"
               
-              echo "Pushing: $NEW_TAG..."
+              echo "Pushing: $NEW_TAG"
               docker push "$NEW_TAG"
           done
