@@ -24,8 +24,7 @@ jobs:
 
       - name: Build ALL Microservices
         run: |
-          # Navigate to the main deployment folder, not the compose folder
-          cd optscale-deploy
+          # The master build.sh script is located at the root of the repository
           chmod +x build.sh
           
           echo "Building all 30+ OptScale microservices..."
