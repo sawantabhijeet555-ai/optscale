@@ -35,15 +35,15 @@ jobs:
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: |
-          # Read the username from the securely passed environment variable
-          HUB_USER="$DOCKER_USERNAME"
+          # 1. Force the Docker username to strictly lowercase to satisfy Docker naming rules
+          HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
           
           echo "Starting retag and push process for user: $HUB_USER"
           
-          # Find all locally built images starting with "hystax/"
-          docker images --format "{{.Repository}}:{{.Tag}}" | grep "^hystax/" | while read -r IMAGE; do
+          # 2. Find images starting with "hystax/", but explicitly ignore "<none>" tags
+          docker images --format "{{.Repository}}:{{.Tag}}" | grep "^hystax/" | grep -v "<none>" | while read -r IMAGE; do
               
-              # Extract the image name and tag (e.g., hystax/optscale_app:local -> optscale_app:local)
+              # Extract the image name and tag
               IMAGE_NAME=$(echo "$IMAGE" | sed 's/hystax\///')
               
               echo "----------------------------------------"
@@ -55,8 +55,3 @@ jobs:
               # Push the image to Docker Hub
               docker push "$HUB_USER/$IMAGE_NAME"
           done
-              
-              # Push the image to Docker Hub
-              docker push "$HUB_USER/$IMAGE_NAME"
-
-
