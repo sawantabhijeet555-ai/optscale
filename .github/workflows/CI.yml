@@ -22,24 +22,33 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
-      - name: Retag and Push Images
+      - name: Retag and Push All Images
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: |
+          # 1. Force the Docker username to lowercase (Docker Hub requirement)
           HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
-          echo "Starting retag and push process for user: $HUB_USER"
+          echo "Processing push for Docker Hub account: $HUB_USER"
           
-          # 1. Process all custom hystax images built by build-unified.sh
-          docker images --format "{{.Repository}}:{{.Tag}}" | grep "^hystax/" | grep -v "<none>" | while read -r IMAGE; do
-              # Remove 'hystax/' prefix
-              IMAGE_NAME=$(echo "$IMAGE" | sed 's/hystax\///')
+          # 2. Tag and push ALL locally built OptScale images
+          docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "<none>" | while read -r IMAGE; do
+              # Extract image repository name without any 'hystax/' or registry prefix
+              RAW_NAME=$(echo "$IMAGE" | awk -F':' '{print $1}' | awk -F'/' '{print $NF}')
+              TAG=$(echo "$IMAGE" | awk -F':' '{print $2}')
               
-              echo "Processing Hystax Image: $IMAGE_NAME..."
-              docker tag "$IMAGE" "$HUB_USER/$IMAGE_NAME"
-              docker push "$HUB_USER/$IMAGE_NAME"
+              # Skip pushing official docker system images if any exist
+              if [[ "$RAW_NAME" != "ubuntu" && "$RAW_NAME" != "alpine" ]]; then
+                  NEW_TAG="$HUB_USER/$RAW_NAME:$TAG"
+                  echo "----------------------------------------"
+                  echo "Tagging $IMAGE -> $NEW_TAG"
+                  docker tag "$IMAGE" "$NEW_TAG"
+                  
+                  echo "Pushing $NEW_TAG..."
+                  docker push "$NEW_TAG"
+              fi
           done
           
-          # 2. Pull, retag, and push required 3rd-party images for K8s deployment
+          # 3. Explicitly pull and push required 3rd-party database images for Kubernetes
           THIRD_PARTY_IMAGES=(
               "clickhouse/clickhouse-server:24.12"
               "curlimages/curl:latest"
@@ -51,13 +60,14 @@ jobs:
           
           for IMAGE in "${THIRD_PARTY_IMAGES[@]}"; do
               echo "----------------------------------------"
-              echo "Pulling missing base image: $IMAGE..."
+              echo "Pulling base image: $IMAGE"
               docker pull "$IMAGE"
               
-              # Extract the image name and tag (e.g., clickhouse/clickhouse-server:24.12 -> clickhouse-server:24.12)
-              SHORT_NAME=$(echo "$IMAGE" | awk -F'/' '{print $NF}')
+              RAW_NAME=$(echo "$IMAGE" | awk -F':' '{print $1}' | awk -F'/' '{print $NF}')
+              TAG=$(echo "$IMAGE" | awk -F':' '{print $2}')
               
-              echo "Pushing 3rd-Party Image: $HUB_USER/$SHORT_NAME..."
-              docker tag "$IMAGE" "$HUB_USER/$SHORT_NAME"
-              docker push "$HUB_USER/$SHORT_NAME"
+              NEW_TAG="$HUB_USER/$RAW_NAME:$TAG"
+              echo "Pushing 3rd-party image -> $NEW_TAG"
+              docker tag "$IMAGE" "$NEW_TAG"
+              docker push "$NEW_TAG"
           done
