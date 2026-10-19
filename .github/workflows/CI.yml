@@ -26,29 +26,31 @@ jobs:
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: |
-          # 1. Force the Docker username to lowercase (Docker Hub requirement)
+          # Force lowercase username
           HUB_USER=$(echo "$DOCKER_USERNAME" | tr '[:upper:]' '[:lower:]')
-          echo "Processing push for Docker Hub account: $HUB_USER"
+          echo "Using Docker Hub Account: $HUB_USER"
           
-          # 2. Tag and push ALL locally built OptScale images
-          docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "<none>" | while read -r IMAGE; do
-              # Extract image repository name without any 'hystax/' or registry prefix
-              RAW_NAME=$(echo "$IMAGE" | awk -F':' '{print $1}' | awk -F'/' '{print $NF}')
-              TAG=$(echo "$IMAGE" | awk -F':' '{print $2}')
+          # 1. PUSH ALL HYSTAX IMAGES
+          # We list all images starting with 'hystax' and push them directly
+          docker images --format "{{.Repository}}:{{.Tag}}" | grep "^hystax/" | grep -v "<none>" | while read -r FULL_IMAGE; do
               
-              # Skip pushing official docker system images if any exist
-              if [[ "$RAW_NAME" != "ubuntu" && "$RAW_NAME" != "alpine" ]]; then
-                  NEW_TAG="$HUB_USER/$RAW_NAME:$TAG"
-                  echo "----------------------------------------"
-                  echo "Tagging $IMAGE -> $NEW_TAG"
-                  docker tag "$IMAGE" "$NEW_TAG"
-                  
-                  echo "Pushing $NEW_TAG..."
-                  docker push "$NEW_TAG"
-              fi
+              # Remove 'hystax/' from the repository name
+              # e.g., hystax/optscale_app:2026042701-public -> optscale_app:2026042701-public
+              IMAGE_ONLY=$(echo "$FULL_IMAGE" | sed 's|^hystax/||')
+              
+              # Construct the new tag
+              NEW_TAG="$HUB_USER/$IMAGE_ONLY"
+              
+              echo "--------------------------------"
+              echo "Tagging: $FULL_IMAGE -> $NEW_TAG"
+              docker tag "$FULL_IMAGE" "$NEW_TAG"
+              
+              echo "Pushing: $NEW_TAG"
+              docker push "$NEW_TAG"
+              
           done
           
-          # 3. Explicitly pull and push required 3rd-party database images for Kubernetes
+          # 2. PUSH THIRD-PARTY IMAGES
           THIRD_PARTY_IMAGES=(
               "clickhouse/clickhouse-server:24.12"
               "curlimages/curl:latest"
@@ -58,16 +60,18 @@ jobs:
               "nginx:1.27-alpine"
           )
           
-          for IMAGE in "${THIRD_PARTY_IMAGES[@]}"; do
-              echo "----------------------------------------"
-              echo "Pulling base image: $IMAGE"
-              docker pull "$IMAGE"
+          for BASE_IMAGE in "${THIRD_PARTY_IMAGES[@]}"; do
+              echo "--------------------------------"
+              echo "Pulling: $BASE_IMAGE"
+              docker pull "$BASE_IMAGE"
               
-              RAW_NAME=$(echo "$IMAGE" | awk -F':' '{print $1}' | awk -F'/' '{print $NF}')
-              TAG=$(echo "$IMAGE" | awk -F':' '{print $2}')
+              # Extract just the name and tag (e.g., rabbitmq:4.1.4-management-alpine)
+              SHORT_NAME=$(echo "$BASE_IMAGE" | awk -F'/' '{print $NF}')
               
-              NEW_TAG="$HUB_USER/$RAW_NAME:$TAG"
-              echo "Pushing 3rd-party image -> $NEW_TAG"
-              docker tag "$IMAGE" "$NEW_TAG"
+              NEW_TAG="$HUB_USER/$SHORT_NAME"
+              echo "Tagging: $BASE_IMAGE -> $NEW_TAG"
+              docker tag "$BASE_IMAGE" "$NEW_TAG"
+              
+              echo "Pushing: $NEW_TAG"
               docker push "$NEW_TAG"
           done
